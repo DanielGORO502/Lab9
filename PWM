@@ -1,0 +1,162 @@
+/*
+ * File:   main.c
+ * Author: doroz
+ *
+ * Created on 27 de abril de 2021, 11:54 AM
+ */
+
+// CONFIG1
+#pragma config FOSC = INTRC_NOCLKOUT// Oscillator Selection bits (INTOSCIO oscillator: I/O function on RA6/OSC2/CLKOUT pin, I/O function on RA7/OSC1/CLKIN)
+#pragma config WDTE = OFF       // Watchdog Timer Enable bit (WDT disabled and can be enabled by SWDTEN bit of the WDTCON register)
+#pragma config PWRTE = OFF      // Power-up Timer Enable bit (PWRT disabled)
+#pragma config MCLRE = OFF      // RE3/MCLR pin function select bit (RE3/MCLR pin function is digital input, MCLR internally tied to VDD)
+#pragma config CP = ON          // Code Protection bit (Program memory code protection is enabled)
+#pragma config CPD = ON         // Data Code Protection bit (Data memory code protection is enabled)
+#pragma config BOREN = OFF      // Brown Out Reset Selection bits (BOR disabled)
+#pragma config IESO = OFF       // Internal External Switchover bit (Internal/External Switchover mode is disabled)
+#pragma config FCMEN = OFF      // Fail-Safe Clock Monitor Enabled bit (Fail-Safe Clock Monitor is disabled)
+#pragma config LVP = ON         // Low Voltage Programming Enable bit (RB3/PGM pin has PGM function, low voltage programming enabled)
+
+// CONFIG2
+#pragma config BOR4V = BOR40V   // Brown-out Reset Selection bit (Brown-out Reset set to 4.0V)
+#pragma config WRT = OFF        // Flash Program Memory Self Write Enable bits (Write protection off)
+
+// #pragma config statements should precede project file includes.
+// Use project enums instead of #define for ON and OFF.
+
+//******************************************************************************
+//Importación de librerias
+//******************************************************************************
+
+#include <xc.h>
+#include <stdint.h>
+
+#define _XTAL_FREQ 8000000
+
+
+void setup(void);
+//******************************************************************************
+//Funcion de Interrupcion 
+//******************************************************************************
+
+void __interrupt() isr (void)
+{
+    if (PIR1bits.ADIF == 1)
+    {
+        if (ADCON0bits.CHS == 0){
+            
+    
+        CCPR1L = (ADRESH>>1) + 124;          //Concatenar, PARTE ALTA
+        CCP1CONbits.DC1B1 = ADRESH & 0b01;  //
+        CCP1CONbits.DC1B0 = ADRESL>>7; 
+        }
+        else 
+        {
+            CCPR2L = (ADRESH>>1) + 124;          //Concatenar, PARTE ALTA
+            CCP2CONbits.DC2B1 = ADRESH & 0b01;  //
+            CCP2CONbits.DC2B0 = ADRESL>>7; 
+        }
+        PIR1bits.ADIF = 0;
+        
+    }
+}
+
+//******************************************************************************
+//Main
+//******************************************************************************
+void main(void) 
+{
+    setup();
+    __delay_us(5);
+    ADCON0bits.GO = 1;   //Conversion  
+    
+    while(1) 
+    {
+        __delay_us(25);
+        //Loop principal 
+        if (ADCON0bits.GO == 0) //Prender Cuando este en 0
+        {
+            if (ADCON0bits.CHS == 0)
+            {
+                ADCON0bits.CHS = 1;
+            }
+             else 
+             {
+              ADCON0bits.CHS = 0;  
+             }
+            __delay_us(100);
+            ADCON0bits.GO = 1;  //
+        }
+    }
+}
+//******************************************************************************
+// Funcion de configuraciones
+//******************************************************************************
+
+void setup(void){
+//********************* Configuración de entradas y salidas ********************
+    ANSEL  = 0b0011;    // Configuracion a pines Digitales 
+    ANSELH = 0;
+                //Configuracion para pines como salidas o entradas 
+    TRISA = 0b0011;     //Entradas menos significativas
+    TRISB = 0;
+    TRISC = 0;
+                   //Limpiamos todos los puertos 
+    PORTA = 0;
+    PORTB = 0;
+    PORTC = 0;
+
+//*********************** Configuración del Reloj a 4MHZ ***********************
+    OSCCONbits.IRCF = 0b0111;  //8MHz
+    OSCCONbits.SCS   = 1;
+    
+ //************************* Configuración del ADC *****************************
+    ADCON1bits.ADFM  = 0;       //Justificación a la izquierda
+    ADCON1bits.VCFG0 = 0;       //Voltaje de referencia Vref = Vss y VDD
+    ADCON1bits.VCFG0 = 0;       //Voltaje de referencia
+    
+    ADCON0bits.ADCS  = 0b10;    //Frecuencia de oscilacion  Fosc/32       
+    ADCON0bits.CHS   = 0;       //Para comenzar con el canal que se utilizara
+    __delay_us(50);             //Para que tenga un delay de carga 
+    ADCON0bits.ADON  = 1;       //Encendemos el modulo 
+    __delay_us(50);             //Delay para que el modulo procese
+
+//************************* Configuración del PWM ******************************
+    TRISCbits.TRISC1 = 1;   //RC2 / CCP1
+    TRISCbits.TRISC2 = 1;   //RC1/CCP2
+                    //Periodo
+    PR2 = 249;              //PERIODO PWM A 2ms
+    CCP1CONbits.P1M = 0b00; //Configuración para la única salida 
+    CCP1CONbits.CCP1M = 0b00001100; //Para la configuración del modo pwm
+    CCP2CONbits.CCP2M = 0b00001100; //aCTIVAR PIN CCP2
+                    //Ciclo
+    CCPR1L = 0x0f;          //Valor inicial aNCHO DEL PULSO
+    CCPR2L = 0x0f;         //aNCHO DE PULSO
+    
+    CCP1CONbits.DC1B = 0;   //Para los bits menos significativos
+    CCP2CONbits.DC2B0 = 0;  //Valores menos significativos
+    CCP2CONbits.DC2B1 = 0;
+                    //TMR2 
+    PIR1bits.TMR2IF = 0;    //limpiar bandera 2
+    T2CONbits.T2CKPS = 0b11;   //pRESCALER 1 :16
+    T2CONbits.TMR2ON = 1;   //TMR2 ON
+                    //Prende salida
+    while (!PIR1bits.TMR2IF == 0);   
+    PIR1bits.TMR2IF = 0;    //Apaga la bandera
+    TRISCbits.TRISC2 = 0;   //Prende TRIS   CCP1
+    TRISCbits.TRISC1 = 0;   //Define la salida como CCP2
+    
+    
+//********************** Configuración de Interrupciones ***********************
+   INTCONbits.GIE = 1;      //Habilitación de interrupciones globales
+   INTCONbits.PEIE = 1;     //Interrupcion por perifericos
+   
+   INTCONbits.T0IE = 1;     //Se habilita el int TMR0
+   INTCONbits.TMR0IF = 0;   //Para apagar la bandera del TMR0
+   INTCONbits.TMR0IE = 1;   //Bit del INTONCHANGE
+   INTCONbits.RBIF = 0;     //Apaga la bandera de IntOnChange 
+   
+   PIE1bits.ADIE = 1;       //Se prende Interrup por ADC 
+   PIR1bits.ADIF = 0;       //Baja la bandera de conversion 
+}
+        
